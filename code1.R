@@ -131,7 +131,11 @@ table(cdat$result)
 # IMNM: SRP + HMGCR
 
 
-ebo <- ebo %>% filter(ebo_date != "NULL") %>%
+ebo <- as.data.frame(ebo)
+ebo[ebo == "NULL"] <- NA
+ebo[, startsWith(colnames(ebo), 'ebo_anti')] <- sapply(ebo[, startsWith(colnames(ebo), 'ebo_anti')], as.numeric)
+
+ebo <- ebo %>% filter(!is.na(ebo_date)) %>%
   
   mutate(jo1 = ifelse(`ebo_anti-jo1` >= 15, 1, 0),
          nxp2 = ifelse(`ebo_anti-nxp2` >= 15, 1, 0),
@@ -148,6 +152,7 @@ ebo <- ebo %>% filter(ebo_date != "NULL") %>%
          srp = ifelse(`ebo_anti-srp` >= 36, 1, 0),
          
          hmgcr = ifelse(`rosen_anti-hmgcr` == "Positive"|`hx_ab_anti-hmgcr` == "yes", 1, 0), 
+         hmgcr = ifelse(is.na(hmgcr), 0, hmgcr), 
          
          asys = pmax(jo1, pl7, pl12, oj, ej, pmscl),
          dermatomyositis = pmax(mda5, tif1, nxp2, sae, mi2),
