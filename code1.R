@@ -1,5 +1,5 @@
 
-Packages <- c("data.table", "dplyr", "qwraps2")
+Packages <- c("data.table", "dplyr", "qwraps2", "lubridate")
 lapply(Packages, library, character.only = T)
 
 # path = "/Volumes/GoogleDrive/My Drive/Desktop/2020 spring/medication_modeling_DRAFT_202005061320/"
@@ -15,7 +15,7 @@ ebo   = fread(paste0(path,"medication_modeling_ebo_DRAFT_202005061320.csv"))
 
 
 ### IMPORTANT
-# For CURRENT med, on med for more than a year (encounter date - start dat)
+# For CURRENT med, on med for more than a year (encounter date - start date)
 # -> define outcome category stable
 
 # can we predict who stop medication - Taper off / stopped from side effect
@@ -43,6 +43,76 @@ pd = drugs[, ]
 
 
 
+# Dataset with only target med
+mdat <- drugs %>% filter(dmardname %in% TargetMed)
+table(mdat$dmardname)
+
+# replace "NULL" or "N/A" with NA
+mdat[mdat == "NULL"|mdat == "N/A"] <- NA
+
+# length of drug usage
+table(mdat$dmardstopreason)
+
+test <- mdat$dmardstopreason[mdat$dmardstatus == "Past"]
+length(test)
+sum(is.na(test))
+sum(!is.na(test))
+
+
+missingreason <- mdat %>% filter(!(dmardstopreason %in% c("adverse effect", "inefficacy", "tapered off"))) %>%
+  
+  # define start date and stop date
+  mutate(startdate = ifelse(!is.na(dmardstartday), 
+                            make_date(year = dmardstartyear, month = dmardstartmonth, day = dmardstartday),
+                            ifelse(!is.na(dmardstartmonth), make_date(year = dmardstartyear, month = dmardstartmonth, day = "15"),
+                                   make_date(year = dmardstartyear, month = "7", day = "15"))) %>% as_date,
+         
+         stopdate = ifelse(!is.na(pastdmardstopyear), 
+                            make_date(year = pastdmardstopyear, month = pastdmardstopmonth, day = pastdmardstopday),
+                            ifelse(!is.na(pastdmardstopmonth), make_date(year = pastdmardstopyear, month = pastdmardstopmonth, day = "15"),
+                                   make_date(year = pastdmardstopyear, month = "7", day = "15"))) %>% as_date,
+         
+        contactdate = mdy(contact_date)) %>% 
+  
+  filter(!is.na(cohort_id))
+
+# check missing cohort id
+mdat %>% filter(is.na(cohort_id))
+
+
+# remove rows with:
+# dmardstatus = "Past" & missing startdate or stopdate
+missingreason %>% filter((dmardstatus == "Past" & (is.na(stopdate) | is.na(startdate)))) %>% nrow
+
+nrow(missingreason)
+
+compdat <- missingreason  %>%
+  filter(!(dmardstatus == "Past" & (is.na(stopdate) | is.na(startdate))))  %>%
+  select(cohort_id, dmardname, dmardstatus, contactdate, startdate, stopdate) %>%
+  mutate(difftime = ifelse(dmardstatus == "Past", stopdate - startdate,
+                           contactdate - startdate),
+         result = ifelse(difftime >= 365, "effective", NA))
+
+nrow(compdat)
+
+# adverse effect?/neg difftime
+View(compdat)
+
+
+# data with reason for stopping
+recordreason <- mdat %>% filter(dmardstopreason %in% c("adverse effect", "inefficacy", "tapered off")) %>%
+  select(cohort_id, dmardname, dmardstatus, dmardstopreason)
+
+colnames(recordreason)[4] <- "result"
+
+# combined data
+cdat <- rbind(recordreason, compdat %>% select(cohort_id, dmardname, dmardstatus, result))
+nrow(cdat)
+table(cdat$result)
+
+
+
+
 ## Create binary antibody variables 
 
 # Jo-1, NXP-2, TIF1g, Mi2, PM-SCL, and MDA5.
@@ -60,7 +130,6 @@ pd = drugs[, ]
 # Dermatomyositis: MDA5, TIF1g, NXP2, SAE, MI2
 # IMNM: SRP + HMGCR
 
-table(ebo$`rosen_anti-hmgcr`, ebo$`hx_ab_anti-hmgcr`) 
 
 ebo <- ebo %>% filter(ebo_date != "NULL") %>%
   
@@ -86,11 +155,19 @@ ebo <- ebo %>% filter(ebo_date != "NULL") %>%
 
 
 ## create summary table
-ebo_summary <-  ebo %>% select(asys, dermatomyositis, imnm) %>% sapply(as.character) %>%
+ebo_summary <-  ebo %>% select(jo1, pl7, pl12, oj, ej, pmscl,
+                               mda5, tif1, nxp2, sae, mi2,
+                               srp, hmgcr,
+                               asys, dermatomyositis, imnm) %>% sapply(as.character) %>%
   as.data.frame() %>% qsummary(., n_perc_args = list(digits = 1, show_symbol = TRUE))
 
 st <- ebo %>% summary_table(., ebo_summary)
 print(st)
+
+
+## HMGCR
+print(xtable::xtable(table(ebo$`rosen_anti-hmgcr`, ebo$`hx_ab_anti-hmgcr`)), comment = F)
+
 
 
 
